@@ -1,0 +1,225 @@
+FeatureScript 2384;
+import(path : "onshape/std/common.fs", version : "2384.0");
+
+const PRECISION = 0.000001 * millimeter;
+annotation { "Feature Type Name" : "Cut Brick" }
+export const CutBrick = defineFeature(function(context is Context, id is Id, definition is map)
+    precondition
+    {
+        
+        annotation { "Name" : "Material OD" }
+        isLength(definition.OD, LENGTH_BOUNDS);
+
+        annotation { "Name" : "Starting Offset X" }
+        isLength(definition.OffsetX, LENGTH_BOUNDS);
+
+        annotation { "Name" : "Starting Offset Angle" }
+        isAngle(definition.OffsetA, ANGLE_360_ZERO_DEFAULT_BOUNDS);
+
+        annotation { "Name" : "Cut Length" }
+        isAngle(definition.CutLength, ANGLE_360_BOUNDS);
+        
+        annotation { "Name" : "Variable Cut Length?" }
+        definition.VariableCutLengthBool is boolean;
+        
+        if ( definition.VariableCutLengthBool ) {
+            annotation { "Name" : "Increase Cut Length By" }
+            isAngle(definition.CutIncrease, ANGLE_360_ZERO_DEFAULT_BOUNDS);
+        }
+
+        annotation { "Name" : "Num Radial Cuts" }
+        isInteger(definition.NumRadialCuts, POSITIVE_COUNT_BOUNDS);
+        
+        annotation { "Name" : "Spacing A" }
+        isAngle(definition.SpacingA, ANGLE_360_ZERO_DEFAULT_BOUNDS);
+        
+        
+        annotation { "Name" : "Pitch" }
+        isLength(definition.Pitch, LENGTH_BOUNDS);
+        
+        annotation { "Name" : "Variable Pitch?" }
+        definition.variablePitch is boolean;
+        
+        if ( definition.variablePitch ) {
+            annotation { "Name" : "Variable Pitch Options" }
+            definition.variablePitchType is VariablePitchOptions;
+            
+            if ( definition.variablePitchType == VariablePitchOptions.FIXEDINCREASE ) {
+                annotation { "Name" : "Increase Pitch By" }
+                isLength(definition.pitchIncrease, LENGTH_BOUNDS);
+            }
+            
+            if ( definition.variablePitchType == VariablePitchOptions.ENDPITCH ) {
+                annotation { "Name" : "End Pitch" }
+                isLength(definition.endPitch, LENGTH_BOUNDS);
+                
+                annotation { "Name" : "Pitch Interpolation Options" }
+                definition.variablePitchInterpolationType is InterpolationOptions;
+            }
+            
+            if ( definition.variablePitchType == VariablePitchOptions.FACTOR ) {
+                annotation { "Name" : "Factor" }
+                isReal(definition.pitchFactor, POSITIVE_REAL_BOUNDS);
+            }
+            
+        }
+        
+        annotation { "Name" : "Instances" }
+        isInteger(definition.NumCuts, POSITIVE_COUNT_BOUNDS);
+        
+        annotation { "Name" : "Continuous?" }
+        definition.Continuous is boolean;
+        
+    }
+    {
+        // Useful Variables (as if there should be any other kind)
+        var OffsetA = definition.OffsetA;
+        var CutLength = definition.CutLength;
+        var CutSpace = 360 * degree - CutLength;
+        var CutIncrease = definition.CutIncrease;
+        var SpacingA = definition.SpacingA;
+        // Normalized from 0 to 1
+        var OffsetA_n = definition.OffsetA / (360 * degree);
+        var CutLength_n = definition.CutLength / (360 * degree);
+        var CutSpace_n = 1 / definition.NumRadialCuts - CutLength_n;
+        var CutIncrease_n = definition.CutIncrease / (360 * degree);
+        var SpacingA_n = definition.SpacingA / (360 * degree);
+        if (definition.VariableCutLengthBool) SpacingA_n -= CutIncrease_n / 2;
+        // Normalized from 0 to c (the circumference of the tube)
+        var c = definition.OD * PI;
+        var OffsetA_c = c * OffsetA_n;
+        var CutLength_c = c * CutLength_n;
+        var CutSpace_c = c * CutSpace_n;
+        var CutIncrease_c = c * CutIncrease_n;
+        var SpacingA_c = c * SpacingA_n;
+
+        // Sketch
+        var sk1_id = newId();
+        var sketch1 = newSketch(context, id + "sketch1", {
+                "sketchPlane" : qCreatedBy(makeId("Top"), EntityType.FACE),
+                "disableImprinting" : true
+            });
+
+        // Loop to create cut pattern
+        var x = definition.OffsetX;
+        var y_start = OffsetA_c;
+        var y_end = (y_start + CutLength_c) % c;
+        
+        if (!definition.Continuous)
+        {
+            y_end = y_end % c;
+        }
+
+        for (var i = 0; i < definition.NumCuts; i += 1)
+        {
+            for (var j = 0; j < definition.NumRadialCuts; j += 1)
+            {
+                // println("y_start, y_end: " ~ toString(y_start) ~ ", " ~ toString(y_end)); // ~ " : " ~ (y_start / c * 360 * degree) ~ ", " ~ (y_end / c * 360 * degree));
+                if (y_start > y_end)
+                {
+                    
+                    // Don't draw points.
+                    if (abs(c - y_start) > PRECISION) {
+                        skLineSegment(sketch1, ("line" ~ i ~ j ~ "_1"), {
+                                    "start" : vector(x, y_start),
+                                    "end" : vector(x, c)
+                                });
+                    }
+
+                    y_start = 0 * inch;
+
+                }
+                
+                // println(y_end - y_start);
+                if (abs(y_end - y_start) > PRECISION) {
+                    skLineSegment(sketch1, ("line" ~ i ~ j), {
+                            "start" : vector(x, y_start),
+                            "end" : vector(x, y_end)
+                        });
+                    // continue;
+                }
+                
+                y_start = (y_end + CutSpace_c);
+                y_end = (y_start + CutLength_c);
+                    
+                if (!definition.Continuous) {
+                    y_start = y_start % c;
+                    y_end = y_end % c;
+                }
+            }
+            
+            // Variable Cut
+            if ( definition.VariableCutLengthBool ) {
+                CutLength_n += CutIncrease_n;
+                CutLength_c = c * CutLength_n;
+                
+                CutSpace_n = (1 / definition.NumRadialCuts) - CutLength_n;
+                CutSpace_c = c * CutSpace_n;
+                
+            }
+            
+            x += definition.Pitch;
+            
+            y_start = (y_start + SpacingA_c);
+            y_end = (y_start + CutLength_c);
+            
+            if (!definition.Continuous) {
+                y_start = y_start % c;
+                y_end = y_end % c;
+            }
+            
+            // Variable Pitch
+            if ( definition.variablePitch ) {
+                if ( definition.variablePitchType == VariablePitchOptions.FIXEDINCREASE ) {
+                    definition.Pitch += definition.pitchIncrease;
+                }
+                
+                if ( definition.variablePitchType == VariablePitchOptions.ENDPITCH ) {
+                    println("TO BE IMPLEMENTED");
+                }
+                
+                if ( definition.variablePitchType == VariablePitchOptions.FACTOR ) {
+                    definition.Pitch *= definition.pitchFactor;
+                }
+            }
+            
+            
+        }
+        
+        // First Part Line
+        skLineSegment(sketch1, "line1", {
+                "start" : vector(0 * inch, 0 * inch),
+                "end" : vector(0 * inch, c)
+        });
+
+        skSolve(sketch1);
+
+    });
+
+export enum CutOptions
+{
+    annotation { "Name" : "Brick" }
+    BRICK,
+    annotation { "Name" : "Spiral" }
+    SPIRAL
+}
+
+export enum VariablePitchOptions
+{
+    annotation { "Name" : "By Fixed Increase" }
+    FIXEDINCREASE,
+    annotation { "Name" : "By End Pitch" }
+    ENDPITCH,
+    annotation { "Name" : "By Factor" }
+    FACTOR
+}
+
+export enum InterpolationOptions
+{
+    annotation { "Name" : "Linear" }
+    LINEAR,
+    // annotation { "Name" : "Polynomial" }
+    // POLYNOMIAL,
+    // annotation { "Name" : "Exponential" }
+    // EXPONENTIAL
+}
