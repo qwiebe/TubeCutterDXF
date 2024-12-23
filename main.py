@@ -219,8 +219,46 @@ class CutPartline:
         for start, end in self.lines:
             msp.add_line(start, end, dxfattribs={"layer": "MyLayer"})
 
+class CutPattern:
+    _cuts = []
+    _dxf = ezdxf.new()
+
+    def __init__(self):
+        self._dxf.units = units.MM
+
+    def add(self, cut):
+        self._cuts.append(cut)
+
+    def draw(self):
+        for cut in self._cuts:
+            cut.draw(self._dxf)
+
+    def save(self, filename):
+        self._dxf.saveas(filename)
+
 
 def main():
+    # Create the Pattern container
+    pattern = CutPattern()
+
+    # Specify some general parameters
+    OD = 1
+    continuous = False
+
+    # Define the cut pattern
+    cutSpiralF = CutSpiral(OD, 24*25.4, 0, 85, 17.857, 0.178, 10, continuous=continuous)
+    cutSpiralB = CutSpiral(OD, 24*25.4, 360-17.857, 85, 17.857, -0.178, 4, continuous=continuous)
+
+    # Add the cut patterns to the Pattern container
+    pattern.add(cutSpiralF)
+    pattern.add(cutSpiralB)
+
+    # Draw and Save the pattern to a file
+    pattern.draw()
+    pattern.save("./output/test.dxf")
+
+def main_old():
+
     doc = ezdxf.new()
     doc.units = units.MM
 
